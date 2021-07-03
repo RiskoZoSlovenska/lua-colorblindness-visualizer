@@ -1,5 +1,8 @@
 --[[--
 	@author RiskoZoSlovenska
+	@version 1.1
+	@date 2021-07-02
+	@license MIT
 
 	A slightly more mathematical algorithm where RGB pixels are converted to the LMS colorspace and then from there
 	various matrix filters can be applied.
