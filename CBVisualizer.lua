@@ -11,7 +11,8 @@
 
 local vips = require("vips")
 
-local matrixImg = vips.Image.new_from_array
+local Image = vips.Image
+local matrixImg = Image.new_from_array
 
 
 local XYZToLMSMatrixType = {
@@ -134,12 +135,15 @@ end
 
 --[[--
 	@param srcImg VipsImage the raw 3-band sRGB image to apply the filter to
-	@param filterType CBFilterType a supported color blindness filter type
-	@param matrixType XYZToLMSMatrixType a supported matrix type for the XYZ -> LMS operation
+	@param[opt=CBFilterType.Tritanopia] filterType CBFilterType a supported color blindness filter type
+	@param[opt=XYZToLMSMatrixType.HuntPointerEstevez] matrixType XYZToLMSMatrixType a supported matrix type for the XYZ -> LMS operation
 
 	@return VipsImage the filtered image
 ]]
-local function processImage(srcImg, filterType, matrixType)
+local function processVipsImage(srcImg, filterType, matrixType)
+	filterType = filterType or CBFilterType.Tritanopia
+	matrixType = matrixType or XYZToLMSMatrixType.HuntPointerEstevez
+
 	local matrixImagesToApply = {
 		RGB_TO_XYZ_MATRIX_IMAGE, -- First convert from RGB to XYZ
 		XYZ_TO_LMS_MATRIX_IMAGES[matrixType], -- Then from XYZ to LMS
@@ -158,8 +162,60 @@ local function processImage(srcImg, filterType, matrixType)
 end
 
 
+--[[--
+	Utility function, takes an image buffer, cleans it and returns the resulting VipsImages.
+
+	@param string buffer the buffer from which to create the image
+	@param string imageFormat the MIME type subformat, with no leading period
+
+	@return VipsImage the non-alpha image
+	@return VipsImage | 255 the alpha band
+]]
+local function cleanBufferToVipsImage(buffer, imageFormat)
+	local image = Image.new_from_buffer(buffer, "." .. imageFormat, {access = "sequential"}):colourspace("srgb")
+
+	local bandsCount = image:bands()
+	local noAlpha, alpha
+	if bandsCount == 1 or bandsCount == 3 then
+		alpha = 255
+		noAlpha = image
+	else
+		local bands = image:bandsplit()
+		alpha = table.remove(bands)
+		noAlpha = Image.bandjoin(bands)
+	end
+
+	return noAlpha, alpha
+end
+
+
+--[[--
+	Similar to processVipsImage(), except it takes a buffer and returns a buffer instead of a VipsImage.
+
+	This is mostly a wrapper.
+
+	@see cleanBufferToVipsImage()
+	@see processVipsImage()
+
+	@param string buffer
+	@param string imageFormat
+	@param[opt=CBFilterType.Tritanopia] filterType CBFilterType
+	@param[opt=XYZToLMSMatrixType.HuntPointerEstevez] matrixType XYZToLMSMatrixType
+
+	@return string the returned buffer in the same format
+]]
+local function processBuffer(buffer, imageFormat, filterType, matrixType)
+	local noAlpha, alpha = cleanBufferToVipsImage(buffer, imageFormat)
+
+	return processVipsImage(noAlpha, filterType, matrixType):bandjoin(alpha):write_to_buffer("." .. imageFormat)
+end
+
+
 return {
-	processImage = processImage,
+	cleanBufferToVipsImage = cleanBufferToVipsImage,
+
+	processVipsImage = processVipsImage,
+	processBuffer = processBuffer,
 
 	CBFilterType = CBFilterType,
 	XYZToLMSMatrixType = XYZToLMSMatrixType,
