@@ -1,26 +1,20 @@
 # Lua Colorblindness Visualizer
 
-A small library (like it literally exposes a single function (so far)) which applies a colorblindness filter on images.
+A small library that can be used to apply colorblindness filters on images. Used mostly as an inside joke in one of the communities I frequent.
 
-Uses an algorithm explained nicely by https://ixora.io/projects/colorblindness/color-blindness-simulation-research/.
-
-
-Currently only the tritanopia filter is implemented, but I plan on adding others.
-
-***Disclaimer:** I have virtually no knowledge (yet) of math and color matrixes and human light perception and so on. I'm merely putting what I read into code.*
+This project is only possible thanks to https://ixora.io/projects/colorblindness/color-blindness-simulation-research/, from where I copied all the matrixes from.
 
 
+## Installation
 
-## Docs
+Coming to [lit](https://luvit.io/lit.html) and [luarocks](https://luarocks.org/) soon (hopefully).
 
-TBA
-
-***Note:** Do note that I mostly plan on using this my own personal purposes so the interface may change at any time.*
-
+Depends on [vips-utils](https://github.com/RiskoZoSlovenska/lua-vips-utils), and on either [lua-vips](https://github.com/libvips/lua-vips) or [lit-vips](https://github.com/bilal2453/lit-vips).
 
 
-## Installation and dependencies
+## TODO
 
-Coming to popular lua package managers soon (not actually lol)
-
-Requires [lua-vips](https://github.com/libvips/lua-vips), which in turn depends on [libvips](http://libvips.github.io/libvips) and [LuaJIT](https://luajit.org/).
+* Docs
+* More tests
+* Publish to lit
+* Publish to luarocks
