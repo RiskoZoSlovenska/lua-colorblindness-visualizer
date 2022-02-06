@@ -1,229 +1,115 @@
---[[--
-	@author RiskoZoSlovenska
-	@version 1.1
-	@date 2021-07-02
-	@license MIT
-
-	A slightly more mathematical algorithm where RGB pixels are converted to the LMS colorspace and then from there
-	various matrix filters can be applied.
-	This is based off of https://ixora.io/projects/colorblindness/color-blindness-simulation-research/, which also
-	gives a very in-depth explanation. The algorithm and most matrixes were pulled from that site.
-
-	DISCLAIMER: I barely understand the concept of matrixes, don't expect me to get all this fancy color math aaaaaaa
-]]
-
-local vips = require("vips")
-
-local Image = vips.Image
-local matrixImg = Image.new_from_array
-
-
-local XYZToLMSMatrixType = {
-	HuntPointerEstevez = 1,
-}
-local CBFilterType = {
-	Protanopia = 1,
-	Protanomaly = 2,
-
-	Deuteranopia = 3,
-	Deuteranomaly = 4,
-
-	Tritanopia = 5,
-	Tritanomaly = 6,
-
-	Achromatopsia = 7,
-	Achromatomaly = 8,
-}
-
-
-
-
---[[--
-	Pretty much copy-pasted from https://stackoverflow.com/a/18504573.
-
-	This math is too high-level for me currently ;-;
-]]
-local function matrixInvert(matrix)
-	local a, b, c = unpack(matrix)
-	local a1, a2, a3 = unpack(a)
-	local b1, b2, b3 = unpack(b)
-	local c1, c2, c3 = unpack(c)
-
-	local determinant =
-		a1 * (b2 * c3 - c2 * b3) -
-		a2 * (b1 * c3 - b3 * c1) +
-		a3 * (b1 * c2 - b2 * c1)
-
-	local invDet = 1 / determinant
-
-	return {
-		{
-			(b2 * c3 - c2 * b3) * invDet,
-			(a3 * c2 - a2 * c3) * invDet,
-			(a2 * b3 - a3 * b2) * invDet,
-		},
-		{
-			(b3 * c1 - b1 * c3) * invDet,
-			(a1 * c3 - a3 * c1) * invDet,
-			(b1 * a3 - a1 * b3) * invDet,
-		},
-		{
-			(b1 * c2 - c1 * b2) * invDet,
-			(c1 * a2 - a1 * c2) * invDet,
-			(a1 * b2 - b1 * a2) * invDet,
-		},
+--[[lit-meta
+	name = "RiskoZoSlovenska/colorblindness"
+	version = "0.1.0"
+	homepage = "https://github.com/RiskoZoSlovenska/lua-colorblindness-visualizer"
+	description = "A small library for apply colorblindness filters onto images."
+	tags = {"colorblindness", "image-processing", "images"}
+	dependencies = {
+		"RiskoZoSlovenska/vips-utils@0.1.0"
 	}
-end
+	license = "MIT"
+	author = "RiskoZoSlovenska"
+]]
+
+local Image = require("vips").Image
+local newMatrix = Image.new_from_array
+
+local utils = require("vips-utils")
 
 
+
+local XyzToLmsMatrixType = {
+	HuntPointerEstevez = 0,
+}
+local CbFilterType = {
+	Protanopia = 0,
+	Deuteranopia = 1,
+	Tritanopia = 2,
+	-- TODO
+	-- Achromatopsia = 3,
+	-- BlueConeMonochromacy = 4,
+}
+
+
+-- TODO: Combine these into one matrix
 -- Conversion between RGB and XYZ
-local RGB_TO_XYZ_MATRIX_IMAGE, XYZ_TO_RGB_MATRIX_IMAGE
-do
-	local rawRGBToXYZ = {
-		{0.4124564, 0.3575761, 0.1804375},
-		{0.2126729, 0.7151522, 0.0721750},
-		{0.0193339, 0.1191920, 0.9503041},
-	}
-
-	RGB_TO_XYZ_MATRIX_IMAGE = matrixImg(rawRGBToXYZ)
-	XYZ_TO_RGB_MATRIX_IMAGE = matrixImg(matrixInvert(rawRGBToXYZ))
-end
+-- We could use vips's :colourspace("xyz") (which actually appears do to gamma
+-- correction and whatnot too), but doing it manually is simpler and more
+-- accurate.)
+local RGB_TO_XYZ = newMatrix{
+	{0.4124564, 0.3575761, 0.1804375},
+	{0.2126729, 0.7151522, 0.0721750},
+	{0.0193339, 0.1191920, 0.9503041},
+}
+local XYZ_TO_RGB = RGB_TO_XYZ:matrixinvert()
 
 -- Conversion between XYZ and LMS
-local XYZ_TO_LMS_MATRIX_IMAGES, LMS_TO_XYZ_MATRIX_IMAGES
-do
-	local rawXYZToLMS = {
-		[XYZToLMSMatrixType.HuntPointerEstevez] = {
-			{0.4002,	0.7076,		-0.0808},
-			{-0.2263,	1.1653,		0.0457},
-			{0,			0,			0.9182},
-		},
-	}
-
-
-	XYZ_TO_LMS_MATRIX_IMAGES, LMS_TO_XYZ_MATRIX_IMAGES = {}, {}
-
-	for key, matrix in pairs(rawXYZToLMS) do
-		XYZ_TO_LMS_MATRIX_IMAGES[key] = matrixImg(matrix)
-		LMS_TO_XYZ_MATRIX_IMAGES[key] = matrixImg(matrixInvert(matrix))
-	end
+local XYZ_TO_LMS = {
+	[XyzToLmsMatrixType.HuntPointerEstevez] = newMatrix{
+		{ 0.4002, 0.7076, -0.0808},
+		{-0.2263, 1.1653,  0.0457},
+		{ 0,      0,       0.9182},
+	},
+}
+local LMS_TO_XYZ = {}
+for matrixType, matrixImage in pairs(XYZ_TO_LMS) do
+	LMS_TO_XYZ[matrixType] = matrixImage:matrixinvert()
 end
 
 -- Actual effect filters to apply once in LMS
-local LMS_FILTER_MATRIX_IMAGES = {
-	[CBFilterType.Tritanopia] = {
-		{1,				0,			0},
-		{0,				1,			0},
-		{-0.86744736,	1.86727089,	0},
+local LMS_FILTERS = {
+	[CbFilterType.Protanopia] = newMatrix{
+		{0,     1.05118294, -0.05116099},
+		{0,     1,           0         },
+		{0,     0,           1         },
+	},
+	[CbFilterType.Deuteranopia] = newMatrix{
+		{1,             0,     0         },
+		{0.9513092,     1,     0.04866992},
+		{0,             0,     1         },
+	},
+	[CbFilterType.Tritanopia] = newMatrix{
+		{ 1,          0,          0},
+		{ 0,          1,          0},
+		{-0.86744736, 1.86727089, 0},
 	},
 }
 
 
--- gamma magic i guess
-local function removeGamma(image)
-	return image:more(0.04045 * 255):ifthenelse(
-		((image / 255 + 0.055) / 1.055)^2.4,
-		(image / 255) / 12.92
-	)
-end
 
-local function addGamma(image)
-	return image:more(0.0031308):ifthenelse(
-		255 * (1.055 * image^0.41666 - 0.055),
-		255 * (12.92 * image)
-	)
-end
-
-
-
---[[--
-	@param srcImg VipsImage the raw 3-band sRGB image to apply the filter to
-	@param[opt=CBFilterType.Tritanopia] filterType CBFilterType a supported color blindness filter type
-	@param[opt=XYZToLMSMatrixType.HuntPointerEstevez] matrixType XYZToLMSMatrixType a supported matrix type for the XYZ -> LMS operation
-
-	@return VipsImage the filtered image
-]]
-local function processVipsImage(srcImg, filterType, matrixType)
-	filterType = filterType or CBFilterType.Tritanopia
-	matrixType = matrixType or XYZToLMSMatrixType.HuntPointerEstevez
+local function applyFilterToImage(srcImg, filterType, matrixType)
+	filterType = filterType or CbFilterType.Protanopia
+	matrixType = matrixType or XyzToLmsMatrixType.HuntPointerEstevez
 
 	local matrixImagesToApply = {
-		RGB_TO_XYZ_MATRIX_IMAGE, -- First convert from RGB to XYZ
-		XYZ_TO_LMS_MATRIX_IMAGES[matrixType], -- Then from XYZ to LMS
-		LMS_FILTER_MATRIX_IMAGES[filterType], -- Apply CB filter
-		LMS_TO_XYZ_MATRIX_IMAGES[matrixType], -- Convert back from LMS to XYZ
-		XYZ_TO_RGB_MATRIX_IMAGE, -- Convert back from XYZ to RGB
+		RGB_TO_XYZ, -- First convert from RGB to XYZ
+		XYZ_TO_LMS[matrixType], -- Then from XYZ to LMS
+		LMS_FILTERS[filterType], -- Apply CB filter
+		LMS_TO_XYZ[matrixType], -- Convert back from LMS to XYZ
+		XYZ_TO_RGB, -- Convert back from XYZ to RGB
 	}
 
-	-- Remember to remove and add the gamma
-	local res = removeGamma(srcImg)
+
+	local res = utils.removeSrgbGamma(srcImg / 255)
 	for _, matrixImage in ipairs(matrixImagesToApply) do
 		res = res:recomb(matrixImage) -- Apply matrix
 	end
 
-	return addGamma(res)
+	return utils.addSrgbGamma(res) * 255
 end
 
+local function applyFilterToBuffer(buffer, imageFormat, filterType, matrixType)
+	local noAlpha, alpha = utils.normalizedFromBuffer(buffer, nil, {access = "sequential"})
 
---[[--
-	Utility function, takes an image buffer, cleans it and returns the resulting VipsImages.
-
-	@param string buffer the buffer from which to create the image
-	@param string imageFormat the MIME type subformat, with no leading period
-
-	@return VipsImage the non-alpha image
-	@return VipsImage | 255 the alpha band
-]]
-local function cleanBufferToVipsImage(buffer, imageFormat)
-	local image = Image.new_from_buffer(buffer, "." .. imageFormat, {access = "sequential"}):colourspace("srgb")
-
-	local bandsCount = image:bands()
-	local noAlpha, alpha
-	if bandsCount == 1 or bandsCount == 3 then
-		alpha = 255
-		noAlpha = image
-	else
-		local bands = image:bandsplit()
-		alpha = table.remove(bands)
-		noAlpha = Image.bandjoin(bands)
-	end
-
-	return noAlpha, alpha
+	return applyFilterToImage(noAlpha, filterType, matrixType):bandjoin(alpha):write_to_buffer(imageFormat)
 end
 
-
---[[--
-	Similar to processVipsImage(), except it takes a buffer and returns a buffer instead of a VipsImage.
-
-	This is mostly a wrapper.
-
-	@see cleanBufferToVipsImage()
-	@see processVipsImage()
-
-	@param string buffer
-	@param string imageFormat
-	@param[opt=CBFilterType.Tritanopia] filterType CBFilterType
-	@param[opt=XYZToLMSMatrixType.HuntPointerEstevez] matrixType XYZToLMSMatrixType
-
-	@return string the returned buffer in the same format
-]]
-local function processBuffer(buffer, imageFormat, filterType, matrixType)
-	local noAlpha, alpha = cleanBufferToVipsImage(buffer, imageFormat)
-
-	return processVipsImage(noAlpha, filterType, matrixType):bandjoin(alpha):write_to_buffer("." .. imageFormat)
-end
 
 
 return {
-	cleanBufferToVipsImage = cleanBufferToVipsImage,
+	applyFilterToImage = applyFilterToImage,
+	applyFilterToBuffer = applyFilterToBuffer,
 
-	processVipsImage = processVipsImage,
-	processBuffer = processBuffer,
-
-	CBFilterType = CBFilterType,
-	XYZToLMSMatrixType = XYZToLMSMatrixType,
-
-	supportedFilterTypes = {
-		CBFilterType.Tritanopia,
-	},
+	CbFilterType = CbFilterType,
+	XyzToLmsMatrixType = XyzToLmsMatrixType,
 }
